@@ -48,6 +48,11 @@ if ("reflimR" %in% rownames(installed.packages())) {
     install.packages("reflimR")
     library(reflimR)}
 
+if ("rhandsontable" %in% rownames(installed.packages())) {
+  library(rhandsontable)} else{
+    install.packages("rhandsontable")
+    library(rhandsontable)}
+
 if ("shinydashboard" %in% rownames(installed.packages())) {
   library(shinydashboard)} else{
     install.packages("shinydashboard")
@@ -60,7 +65,7 @@ text1 <- HTML(paste0(
   "These columns should be used for new data: Category: Name of the category to filter the data, Age: Age in years, Sex: m for male and f for female,
   Value: Column name is the analyte name, values are the laboratory measures. The data from livertests serves as a template. 
   To load new data, the data should be in CSV format with values separated by semicolons (;), and decimal numbers should use a comma (,) as the decimal separator. 
-  The first row should contain column headers.", br(), br(),
+  The first row should contain column headers. Alternatively, the data can be loaded into the editable table using the copy-and-paste function.", br(), br(),
   "On the left side, the sidebar allows you to select the laboratory parameter, category, age and gender group. 
   In the “Target Values” section, you can load target values from targetvalues, load reference intervals estimated with refineR, or manually enter custom values."
 ))
@@ -163,19 +168,19 @@ ui <- dashboardPage(
                    
                    p(text1),
                    
+                   fluidRow(
+                     column(6, checkboxInput("show_table", "Show and use editable table for upload. Please click Submit!", value = FALSE)),
+                     column(6, actionButton("submit", "Submit"))
+                   ),
+                   conditionalPanel(
+                     condition = "input.show_table == true",
+                     rHandsontableOutput("editable_table")
+                   ), hr(),
+                   
                    uiOutput("dataset_file"),
                    actionButton('reset', 'Reset Input', icon = icon("trash")), hr(),
                    
                    DT::dataTableOutput("table")
-                   
-                   # fluidRow(
-                   #   column(6, checkboxInput("show_table", "Show Editable Table for Upload", value = FALSE)),
-                   #   column(6, actionButton("submit", "Submit"))
-                   # ),
-                   # conditionalPanel(
-                   #   condition = "input.show_table == true",
-                   #   rHandsontableOutput("editable_table")
-                   # )
                  )
         ),
         
@@ -329,24 +334,30 @@ server <- function(input, output, session) {
   })
   
   output$parameters <- renderUI({
+    if(input$show_table && input$submit) {
+      choices <- colnames(data_store())[4:length(colnames(data_store()))]
+    } else{
     if (is.null(dataset_input())) { 
       choices <- colnames(dataset_original)[4:length(colnames(dataset_original))]
     } 
     else{
       validate(need(endsWith(dataset_input()[["datapath"]], ".csv"), "Check if you have used the correct template! It must be an CSV file!"))
       choices <- colnames(read.csv2(dataset_input()[["datapath"]]))[4:length(colnames(read.csv2(dataset_input()[["datapath"]])))]
-    }
+    }}
     selectInput("parameter","Select laboratory value:", choices = choices, selected = TRUE)
   })   
   
   output$category <- renderUI({
+    if(input$show_table && input$submit) {
+      choices <- unique(data_store()[1])[[1]]
+    } else{
     if (is.null(dataset_input())) { 
       choices <- unique(dataset_original[1])[[1]]
     } 
     else{
       validate(need(endsWith(dataset_input()[["datapath"]], ".csv"), "Check if you have used the correct template! It must be an CSV file!"))
       choices <- unique(read.csv2(dataset_input()[["datapath"]])[1])[[1]]
-    }
+    }}
     choices <- c("Not selected", choices)
     selectInput("category", "Select category:", choices = choices, selected = "Not selected")
   })
@@ -398,28 +409,31 @@ server <- function(input, output, session) {
     updateCheckboxInput(session, "check_refineR", value = reactive_values$check_refineR)
   })
   
-  # observeEvent(input$submit, {
-  #   if (!is.null(input$editable_table)) { data_store(hot_to_r(input$editable_table))}
-  # })
-  
-  # initial_data <- data.frame(
-  #   Category = character(50),
-  #   Age = numeric(50),
-  #   Sex = character(50),
-  #   Analyte = numeric(50),
-  #   stringsAsFactors = FALSE
-  # )
-  # 
-  # data_store <- reactiveVal(initial_data)
-  
-  # observeEvent(input$show_table, {
-  #   if (input$show_table) {
-  #     output$editable_table <- renderRHandsontable({
-  #       rhandsontable(data_store(), rowHeaders = NULL, colHeaders = colnames(data_store()))
-  #     })
-  #   }
-  # }, ignoreNULL = FALSE)
-  
+  observeEvent(input$submit, {
+    if (!is.null(input$editable_table)) { data_store(hot_to_r(input$editable_table))}
+  })
+
+  initial_data <- data.frame(
+    Category = character(50),
+    Age = numeric(50),
+    Sex = character(50),
+    Analyte = numeric(50),
+    #Analyte1 = numeric(50),
+    #Analyte2 = numeric(50),
+    #Analyte3 = numeric(50),
+    stringsAsFactors = FALSE
+  )
+
+  data_store <- reactiveVal(initial_data)
+
+  observeEvent(input$show_table, {
+    if (input$show_table) {
+      output$editable_table <- renderRHandsontable({
+        rhandsontable(data_store(), width = '800',
+                      height = 550, rowHeaders = NULL, colHeaders = colnames(data_store()))
+      })
+    }
+  }, ignoreNULL = FALSE)
   ##################################### Reactive Expressions ######################################
   
   # Create the table with the dataset as reactive expression 
@@ -436,9 +450,9 @@ server <- function(input, output, session) {
     input$dataset_file
     input$age_end
     
-    # if(input$show_table && input$submit) {
-    #   dataset_original <- data_store()
-    # } else{
+    if(input$show_table && input$submit) {
+       dataset <- data_store()
+    } else{
     if (is.null(dataset_input())) {
       dataset <- dataset_original
     } else {
@@ -453,7 +467,7 @@ server <- function(input, output, session) {
         nrow(dataset) > 0,
         "Check if you have used the correct template! The dataset is empty!"
       ))
-    }
+    }}
     
     column_number <- which(names(dataset) == input$parameter)
     dataset <- dataset[c(1, 2, 3, column_number)]
@@ -461,7 +475,6 @@ server <- function(input, output, session) {
     if (!is.null(input$category) && input$category != "Not selected") {
       dataset <- subset(dataset, dataset[[1]] == input$category)
     }
-    #}
     
     validate(need(
       ncol(dataset) == 4, 
@@ -491,9 +504,9 @@ server <- function(input, output, session) {
     input$dataset_file
     input$age_end
     
-    # if(input$show_table && input$submit) {
-    #   dataset_original <- data_store()
-    # } else{
+    if(input$show_table && input$submit) {
+       dataset <- data_store()
+    } else{
     if (is.null(dataset_input())) {
       dataset <- dataset_original
     } else {
@@ -508,12 +521,11 @@ server <- function(input, output, session) {
         nrow(dataset) > 0,
         "Check if you have used the correct template! The dataset is empty!"
       ))
-    }
+    }}
     
     if (!is.null(input$category) && input$category != "Not selected") {
       dataset <- subset(dataset, dataset[[1]] == input$category)
     }
-    #}
     
     dataset <- subset(dataset, Age >= input$age_end[1] & Age <= input$age_end[2])
     
